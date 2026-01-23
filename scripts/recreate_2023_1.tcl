@@ -24,7 +24,7 @@ set proj_dir [file join $repo_root "vivado_2023_1"]
 
 # Target: UltraZed-3EG PCIECC
 set part_name "xczu3eg-sfva625-1-i"
-set board_part "avnet.com:ultrazed_eg_pciecc_production:part0:1.4"
+set board_part "avnet-tria:ultrazed_eg_pciecc_production:part0:1.4"
 
 # Alternative: Kria K260 SOM (uncomment if targeting Kria)
 # set part_name "xck26-sfvc784-2LV-c"
