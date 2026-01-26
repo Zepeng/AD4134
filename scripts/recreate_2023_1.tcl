@@ -499,7 +499,7 @@ proc create_hier_cell_Processing_Subsystem { parentCell nameHier } {
     CONFIG.PRIM_SOURCE {Global_buffer} \
     CONFIG.PRIM_IN_FREQ {100.000} \
     CONFIG.CLKOUT1_DRIVES {BUFG} \
-    CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {50.000} \
+    CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {80.000} \
     CONFIG.CLKOUT2_DRIVES {Buffer} \
     CONFIG.CLKOUT2_USED {false} \
     CONFIG.CLKOUT3_DRIVES {Buffer} \
