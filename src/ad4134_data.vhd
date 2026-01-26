@@ -56,7 +56,7 @@ architecture rtl of ad4134_data is
 
     -- Slower clocks for data interface:
     signal slow_clk : std_logic;
-    constant SLOW_CLK_MAX : integer := 50;
+    constant SLOW_CLK_MAX : integer := 20;
     signal slow_clk_counter : integer range 0 to SLOW_CLK_MAX;
 
     -- Read flags:

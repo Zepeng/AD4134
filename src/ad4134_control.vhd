@@ -425,7 +425,7 @@ begin
                     read_i       <= '0';
 
                     spiaddr_i <= '0' & DIGITAL_INTERFACE_CONFIG(6 downto 0); --Write bit msb
-                    datain_i  <= "00000010"; --Quad channel output 
+                    datain_i  <= "00110010"; --Quad channel output 
 
                     if spidone_post = '1' and spidone_pre = '0' then
                         write_i      <= '0';
