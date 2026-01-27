@@ -33,6 +33,8 @@ set_property PACKAGE_PIN K17 [get_ports spi_cs_n]
 
 set_property PACKAGE_PIN J16 [get_ports dclk_out]
 set_property IOSTANDARD LVCMOS18 [get_ports dclk_out]
+set_property PACKAGE_PIN P2 [get_ports ad4134_dclk_mode]
+set_property IOSTANDARD LVCMOS18 [get_ports ad4134_dclk_mode]
 set_property PACKAGE_PIN L17 [get_ports odr_out]
 set_property IOSTANDARD LVCMOS18 [get_ports odr_out]
 
@@ -70,4 +72,3 @@ set_property PACKAGE_PIN R2 [get_ports mosi]
 set_property PACKAGE_PIN M3 [get_ports odr_out]
 set_property IOSTANDARD LVCMOS18 [get_ports odr_out]
 set_property PACKAGE_PIN N5 [get_ports spi_cs_n]
-

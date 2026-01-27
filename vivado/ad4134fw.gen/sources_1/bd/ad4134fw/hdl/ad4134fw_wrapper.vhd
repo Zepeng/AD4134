@@ -21,6 +21,7 @@ entity ad4134fw_wrapper is
     data_in2 : in STD_LOGIC;
     data_in3 : in STD_LOGIC;
     dclk_out : out STD_LOGIC;
+    ad4134_dclk_mode : out STD_LOGIC;
     debug : out STD_LOGIC_VECTOR ( 3 downto 0 );
     hb_led : out STD_LOGIC_VECTOR ( 0 to 0 );
     miso : in STD_LOGIC;
@@ -42,6 +43,7 @@ architecture STRUCTURE of ad4134fw_wrapper is
     LEDS : out STD_LOGIC_VECTOR ( 6 downto 0 );
     hb_led : out STD_LOGIC_VECTOR ( 0 to 0 );
     dclk_out : out STD_LOGIC;
+    ad4134_dclk_mode : out STD_LOGIC;
     odr_out : out STD_LOGIC;
     data_in0 : in STD_LOGIC;
     data_in1 : in STD_LOGIC;
@@ -68,4 +70,6 @@ ad4134fw_i: component ad4134fw
       spi_clk => spi_clk,
       spi_cs_n => spi_cs_n
     );
+  -- Force gated DCLK mode (DEC1/DCLKMODE = 0).
+  ad4134_dclk_mode <= '0';
 end STRUCTURE;
