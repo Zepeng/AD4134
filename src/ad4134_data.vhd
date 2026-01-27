@@ -51,6 +51,7 @@ architecture rtl of ad4134_data is
 
     -- Flags:
     signal dclk_active : std_logic;
+    signal dclk_gate   : std_logic := '0';  -- Gating signal for complete DCLK pulses
 
     -- Clock divider for DCLK timing
     constant SLOW_CLK_MAX : integer := 1;
@@ -63,11 +64,9 @@ architecture rtl of ad4134_data is
     -- Read flags:
     signal data_rdy_flag : std_logic;
 
-    -- Delayed sampling signals for timing margin (2-cycle delay for SLOW_CLK_MAX=0)
-    signal dclk_fall_d1   : std_logic := '0';
-    signal dclk_fall_d2   : std_logic := '0';
-    signal dclk_active_d1 : std_logic := '0';
-    signal dclk_active_d2 : std_logic := '0';
+    -- Delayed sampling signals for timing margin
+    signal dclk_rise_d1   : std_logic := '0';  -- Sample on delayed rise for mid-period timing
+    signal dclk_gate_d1   : std_logic := '0';  -- Use dclk_gate for aligned sampling window
 
 begin
 
@@ -113,10 +112,20 @@ begin
             odr_tracker <= 0;
             odr_int     <= '0';
             dclk_active <= '0';
+            dclk_gate   <= '0';
             dclk_out_r  <= '0';
         elsif (rising_edge(clk)) then
-            -- Register DCLK output to avoid glitches
-            if (dclk_active = '1') then
+            -- Gating logic: ensures complete DCLK pulses
+            -- Start gating only when dclk_int is low (about to start fresh cycle)
+            -- Stop gating only when dclk_int is low (completed current cycle)
+            if (dclk_active = '1' and dclk_gate = '0' and dclk_int = '0') then
+                dclk_gate <= '1';  -- Start on low phase
+            elsif (dclk_active = '0' and dclk_gate = '1' and dclk_int = '0') then
+                dclk_gate <= '0';  -- Stop on low phase
+            end if;
+
+            -- Register DCLK output using clean gating
+            if (dclk_gate = '1') then
                 dclk_out_r <= dclk_int;
             else
                 dclk_out_r <= '0';
@@ -161,22 +170,18 @@ begin
     delay_p : process(clk, rst_n)
     begin
         if (rst_n = '0') then
-            dclk_fall_d1   <= '0';
-            dclk_fall_d2   <= '0';
-            dclk_active_d1 <= '0';
-            dclk_active_d2 <= '0';
+            dclk_rise_d1 <= '0';
+            dclk_gate_d1 <= '0';
         elsif (rising_edge(clk)) then
-            dclk_fall_d1   <= dclk_fall_en;
-            dclk_fall_d2   <= dclk_fall_d1;
-            dclk_active_d1 <= dclk_active;
-            dclk_active_d2 <= dclk_active_d1;
+            dclk_rise_d1 <= dclk_rise_en;
+            dclk_gate_d1 <= dclk_gate;
         end if;
     end process;
 
     ---------------------------------------------------------------------------
     -- Data read process
     -- FIXED: Sample data_in directly instead of through intermediate register
-    -- FIXED: Use dclk_fall_d2 (2-cycle delay) for setup time, dclk_active_d1 for boundary
+    -- FIXED: Use dclk_rise_d1 to sample mid-period (12.5ns after AD4134 outputs data)
     ---------------------------------------------------------------------------
     read_p : process(clk, rst_n)
     begin
@@ -195,8 +200,8 @@ begin
         elsif (rising_edge(clk)) then
             data_rdy <= '0';
 
-            if (dclk_fall_d2 = '1') then
-                if (dclk_active_d1 = '1') then
+            if (dclk_rise_d1 = '1') then
+                if (dclk_gate_d1 = '1') then
                     if (bit_count > 0) then
                         -- Sample data_in directly (no intermediate register)
                         shift_reg0(bit_count - 1) <= data_in0;
