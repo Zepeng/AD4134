@@ -31,7 +31,7 @@ architecture rtl of ad4134_data is
     -- Constants:
     constant ODR_HIGH_TIME  : integer := 3;
     constant ODR_LOW_TIME   : integer := 24;
-    constant ODR_WAIT_FIRST : integer := 1;
+    constant ODR_WAIT_FIRST : integer := 2;
     constant ODR_WAIT_LAST  : integer := 10;
 
     -- ODR Tracker signals:
@@ -63,9 +63,11 @@ architecture rtl of ad4134_data is
     -- Read flags:
     signal data_rdy_flag : std_logic;
 
-    -- Delayed sampling signals for timing margin
+    -- Delayed sampling signals for timing margin (2-cycle delay for SLOW_CLK_MAX=0)
     signal dclk_fall_d1   : std_logic := '0';
+    signal dclk_fall_d2   : std_logic := '0';
     signal dclk_active_d1 : std_logic := '0';
+    signal dclk_active_d2 : std_logic := '0';
 
 begin
 
@@ -160,17 +162,21 @@ begin
     begin
         if (rst_n = '0') then
             dclk_fall_d1   <= '0';
+            dclk_fall_d2   <= '0';
             dclk_active_d1 <= '0';
+            dclk_active_d2 <= '0';
         elsif (rising_edge(clk)) then
             dclk_fall_d1   <= dclk_fall_en;
+            dclk_fall_d2   <= dclk_fall_d1;
             dclk_active_d1 <= dclk_active;
+            dclk_active_d2 <= dclk_active_d1;
         end if;
     end process;
 
     ---------------------------------------------------------------------------
     -- Data read process
     -- FIXED: Sample data_in directly instead of through intermediate register
-    -- FIXED: Use delayed sampling enable for SLOW_CLK_MAX=0 timing margin
+    -- FIXED: Use 2-cycle delayed sampling for SLOW_CLK_MAX=0 timing margin
     ---------------------------------------------------------------------------
     read_p : process(clk, rst_n)
     begin
@@ -189,8 +195,8 @@ begin
         elsif (rising_edge(clk)) then
             data_rdy <= '0';
 
-            if (dclk_fall_d1 = '1') then
-                if (dclk_active_d1 = '1') then
+            if (dclk_fall_d2 = '1') then
+                if (dclk_active_d2 = '1') then
                     if (bit_count > 0) then
                         -- Sample data_in directly (no intermediate register)
                         shift_reg0(bit_count - 1) <= data_in0;
