@@ -176,7 +176,7 @@ begin
     ---------------------------------------------------------------------------
     -- Data read process
     -- FIXED: Sample data_in directly instead of through intermediate register
-    -- FIXED: Use 2-cycle delayed sampling for SLOW_CLK_MAX=0 timing margin
+    -- FIXED: Use dclk_fall_d2 (2-cycle delay) for setup time, dclk_active_d1 for boundary
     ---------------------------------------------------------------------------
     read_p : process(clk, rst_n)
     begin
@@ -196,7 +196,7 @@ begin
             data_rdy <= '0';
 
             if (dclk_fall_d2 = '1') then
-                if (dclk_active_d2 = '1') then
+                if (dclk_active_d1 = '1') then
                     if (bit_count > 0) then
                         -- Sample data_in directly (no intermediate register)
                         shift_reg0(bit_count - 1) <= data_in0;
