@@ -166,7 +166,7 @@ begin
 
             data_rdy_flag <= '0';
 
-        elsif (falling_edge(slow_clk)) then
+        elsif (rising_edge(slow_clk)) then
 
             if (dclk_active = '1') then
 
