@@ -65,8 +65,13 @@ architecture rtl of ad4134_data is
     signal data_rdy_flag : std_logic;
 
     -- Delayed sampling signals for timing margin
-    signal dclk_rise_d1   : std_logic := '0';  -- Sample on delayed rise for mid-period timing
-    signal dclk_gate_d1   : std_logic := '0';  -- Use dclk_gate for aligned sampling window
+    -- AD4134 slave mode: t6 = 8.2 ns max (DCLK rise to data valid)
+    -- Plus PCB round-trip delay (~6 ns), need ~15 ns minimum delay
+    -- Use 2-cycle delay to ensure adequate timing margin at 80 MHz
+    signal dclk_rise_d1   : std_logic := '0';
+    signal dclk_rise_d2   : std_logic := '0';  -- 2-cycle delay for sampling
+    signal dclk_gate_d1   : std_logic := '0';
+    signal dclk_gate_d2   : std_logic := '0';  -- Aligned with sampling
 
 begin
 
@@ -165,23 +170,30 @@ begin
 
     ---------------------------------------------------------------------------
     -- Delay process for sampling timing margin
-    -- Delays dclk_fall_en by 1 cycle to give AD4134 time to output valid data
+    -- AD4134 slave mode timing: t6 = 8.2 ns max (DCLK rise to data valid)
+    -- With PCB round-trip delay (~6 ns), need ~15 ns total delay
+    -- 2-cycle delay provides: 25 ns @ 80 MHz, 40 ns @ 50 MHz
     ---------------------------------------------------------------------------
     delay_p : process(clk, rst_n)
     begin
         if (rst_n = '0') then
             dclk_rise_d1 <= '0';
+            dclk_rise_d2 <= '0';
             dclk_gate_d1 <= '0';
+            dclk_gate_d2 <= '0';
         elsif (rising_edge(clk)) then
             dclk_rise_d1 <= dclk_rise_en;
+            dclk_rise_d2 <= dclk_rise_d1;  -- 2-cycle delay for sampling
             dclk_gate_d1 <= dclk_gate;
+            dclk_gate_d2 <= dclk_gate_d1;  -- Aligned with sampling
         end if;
     end process;
 
     ---------------------------------------------------------------------------
     -- Data read process
-    -- FIXED: Sample data_in directly instead of through intermediate register
-    -- FIXED: Use dclk_rise_d1 to sample mid-period (12.5ns after AD4134 outputs data)
+    -- Uses 2-cycle delay (dclk_rise_d2) to ensure data is valid after t6
+    -- Timing: DCLK rises -> 8.2ns (t6) -> data valid -> sample after 2 clocks
+    -- At 80 MHz: 2 clocks = 25 ns > 8.2 ns + ~6 ns PCB delay = 14.2 ns
     ---------------------------------------------------------------------------
     read_p : process(clk, rst_n)
     begin
@@ -200,8 +212,8 @@ begin
         elsif (rising_edge(clk)) then
             data_rdy <= '0';
 
-            if (dclk_rise_d1 = '1') then
-                if (dclk_gate_d1 = '1') then
+            if (dclk_rise_d2 = '1') then
+                if (dclk_gate_d2 = '1') then
                     if (bit_count > 0) then
                         -- Sample data_in directly (no intermediate register)
                         shift_reg0(bit_count - 1) <= data_in0;
