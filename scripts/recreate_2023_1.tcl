@@ -735,6 +735,44 @@ update_compile_order -fileset sources_1
 
 puts "Wrapper created: $wrapper_path"
 
+# ------------------------------------------------------------------------------
+# Step 7a: Patch wrapper to expose ad4134_dclk_mode tied LOW (gated DCLK)
+# ------------------------------------------------------------------------------
+if {[file exists $wrapper_path]} {
+  if {[string match "*.vhd" $wrapper_path]} {
+    set fh [open $wrapper_path r]
+    set txt [read $fh]
+    close $fh
+
+    if {![string match "*ad4134_dclk_mode*" $txt]} {
+      # Add port to entity (first occurrence is entity, not component)
+      set new_txt $txt
+      if {[regsub {dclk_out : out STD_LOGIC;} $new_txt {dclk_out : out STD_LOGIC;
+    ad4134_dclk_mode : out STD_LOGIC;} new_txt]} {
+        # Tie the port low near end of architecture
+        if {[regsub {end STRUCTURE;} $new_txt {  -- Force gated DCLK mode (DEC1/DCLKMODE = 0).
+  ad4134_dclk_mode <= '0';
+end STRUCTURE;} new_txt]} {
+          set fh [open $wrapper_path w]
+          puts -nonewline $fh $new_txt
+          close $fh
+          puts "Patched wrapper with ad4134_dclk_mode tied LOW."
+        } else {
+          puts "WARNING: Could not insert ad4134_dclk_mode assignment."
+        }
+      } else {
+        puts "WARNING: Could not insert ad4134_dclk_mode port in wrapper."
+      }
+    } else {
+      puts "Wrapper already includes ad4134_dclk_mode."
+    }
+  } else {
+    puts "NOTE: Wrapper is not VHDL; skipping ad4134_dclk_mode patch."
+  }
+} else {
+  puts "WARNING: Wrapper file not found; skipping ad4134_dclk_mode patch."
+}
+
 # ==============================================================================
 # Step 8: Add Simulation Sources
 # ==============================================================================
