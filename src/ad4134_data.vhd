@@ -63,6 +63,10 @@ architecture rtl of ad4134_data is
     -- Read flags:
     signal data_rdy_flag : std_logic;
 
+    -- Delayed sampling signals for timing margin
+    signal dclk_fall_d1   : std_logic := '0';
+    signal dclk_active_d1 : std_logic := '0';
+
 begin
 
     -- Registered outputs to avoid glitches
@@ -149,9 +153,24 @@ begin
     end process;
 
     ---------------------------------------------------------------------------
+    -- Delay process for sampling timing margin
+    -- Delays dclk_fall_en by 1 cycle to give AD4134 time to output valid data
+    ---------------------------------------------------------------------------
+    delay_p : process(clk, rst_n)
+    begin
+        if (rst_n = '0') then
+            dclk_fall_d1   <= '0';
+            dclk_active_d1 <= '0';
+        elsif (rising_edge(clk)) then
+            dclk_fall_d1   <= dclk_fall_en;
+            dclk_active_d1 <= dclk_active;
+        end if;
+    end process;
+
+    ---------------------------------------------------------------------------
     -- Data read process
     -- FIXED: Sample data_in directly instead of through intermediate register
-    -- This eliminates the one-cycle pipeline delay that was causing bit shift
+    -- FIXED: Use delayed sampling enable for SLOW_CLK_MAX=0 timing margin
     ---------------------------------------------------------------------------
     read_p : process(clk, rst_n)
     begin
@@ -170,8 +189,8 @@ begin
         elsif (rising_edge(clk)) then
             data_rdy <= '0';
 
-            if (dclk_fall_en = '1') then
-                if (dclk_active = '1') then
+            if (dclk_fall_d1 = '1') then
+                if (dclk_active_d1 = '1') then
                     if (bit_count > 0) then
                         -- Sample data_in directly (no intermediate register)
                         shift_reg0(bit_count - 1) <= data_in0;
