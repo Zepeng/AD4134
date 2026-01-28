@@ -2,9 +2,18 @@ library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
 
+-- AD4134 Data Capture Module (Slave Mode)
+-- Based on ADI reference design axi_ad4134_sif.v
+-- Uses state machine approach for clean DCLK generation and data sampling
+
 entity ad4134_data is
     generic(
-        DATA_WIDTH : integer := 24
+        DATA_WIDTH : integer := 24;
+        -- Clock divider controls DCLK frequency
+        -- DCLK LOW phase  = (CLK_DIV + 1) clock cycles
+        -- DCLK HIGH phase = (CLK_DIV + 2) clock cycles (extra cycle for t6 setup)
+        -- At 80 MHz with CLK_DIV=1: LOW=25ns, HIGH=37.5ns, period=62.5ns (~16 MHz)
+        CLK_DIV    : integer := 1
     );
     port(
         -- Global signals:
@@ -28,234 +37,190 @@ end ad4134_data;
 
 architecture rtl of ad4134_data is
 
-    -- Constants:
-    -- Timing constants based on ADI reference design analysis:
-    -- ADI uses ODR high ~130 ns, DCLK starts 30 ns after ODR starts
-    -- Increased margins for reliable high-speed operation
-    constant ODR_HIGH_TIME  : integer := 6;   -- Longer ODR pulse (~300 ns)
-    constant ODR_LOW_TIME   : integer := 24;  -- 24 bits of data
-    constant ODR_WAIT_FIRST : integer := 4;   -- More setup time before DCLK
-    constant ODR_WAIT_LAST  : integer := 6;   -- Reduced to maintain ODR rate
+    -- State machine states (following ADI design)
+    type state_t is (
+        STATE_IDLE,   -- Wait for ODR interval
+        STATE_ODR,    -- Generate ODR pulse
+        STATE_LOW,    -- DCLK low phase
+        STATE_HIGH,   -- DCLK high phase (sample at end)
+        STATE_DONE    -- Transfer data to output
+    );
+    signal state : state_t := STATE_IDLE;
 
-    -- ODR Tracker signals:
-    constant ODR_TOTAL_CLKS : integer := ODR_HIGH_TIME + ODR_WAIT_FIRST + ODR_LOW_TIME + ODR_WAIT_LAST;
-    signal   odr_tracker    : integer range 0 to ODR_TOTAL_CLKS;
+    -- Timing constants
+    -- ODR idle period between captures (adjustable for desired sample rate)
+    constant ODR_IDLE_CLKS : integer := 12;  -- Idle time between captures
+    constant ODR_PULSE_CLKS : integer := 8;  -- ODR high pulse width
 
-    -- Internal control registers:
-    signal odr_int     : std_logic := '0';
-    signal dclk_int    : std_logic := '0';
-    signal dclk_out_r  : std_logic := '0';
-    signal bit_count   : integer range 0 to DATA_WIDTH;
+    -- Clock divider counter (needs +1 for setup time in HIGH phase)
+    signal clk_counter : integer range 0 to CLK_DIV + 1 := 0;
 
-    signal shift_reg0 : std_logic_vector(DATA_WIDTH - 1 downto 0);
-    signal shift_reg1 : std_logic_vector(DATA_WIDTH - 1 downto 0);
-    signal shift_reg2 : std_logic_vector(DATA_WIDTH - 1 downto 0);
-    signal shift_reg3 : std_logic_vector(DATA_WIDTH - 1 downto 0);
+    -- Bit counter (counts down from DATA_WIDTH)
+    signal bit_counter : integer range 0 to DATA_WIDTH := DATA_WIDTH;
 
-    -- Flags:
-    signal dclk_active : std_logic;
-    signal dclk_gate   : std_logic := '0';  -- Gating signal for complete DCLK pulses
+    -- ODR interval counter
+    signal odr_counter : integer range 0 to ODR_IDLE_CLKS + ODR_PULSE_CLKS := 0;
 
-    -- Clock divider for DCLK timing
-    constant SLOW_CLK_MAX : integer := 1;
-    signal slow_clk_counter : integer range 0 to SLOW_CLK_MAX;
+    -- Shift registers for incoming data
+    signal shift_reg0 : std_logic_vector(DATA_WIDTH - 1 downto 0) := (others => '0');
+    signal shift_reg1 : std_logic_vector(DATA_WIDTH - 1 downto 0) := (others => '0');
+    signal shift_reg2 : std_logic_vector(DATA_WIDTH - 1 downto 0) := (others => '0');
+    signal shift_reg3 : std_logic_vector(DATA_WIDTH - 1 downto 0) := (others => '0');
 
-    -- Clock enable signals (active for one clk cycle)
-    signal dclk_rise_en : std_logic;
-    signal dclk_fall_en : std_logic;
-
-    -- Read flags:
-    signal data_rdy_flag : std_logic;
-
-    -- Delayed sampling signals for timing margin
-    -- AD4134 slave mode: t6 = 8.2 ns max (DCLK rise to data valid)
-    -- At 80 MHz, SLOW_CLK_MAX=1: DCLK period = 50 ns, high time = 25 ns
-    -- Sample 1 cycle after falling edge (T=37.5ns) gives 12.5 ns margin before next rise
-    --
-    -- IMPORTANT: Use dclk_active directly (not dclk_gate) because:
-    --   - dclk_active goes HIGH on dclk_rise_en (at DCLK rising edge)
-    --   - dclk_fall_en fires on DCLK falling edge (half period later)
-    --   - So dclk_active is already stable when we check dclk_fall_d1
-    --   - dclk_gate has 1-cycle alignment issue (set after dclk_int goes low)
-    signal dclk_fall_d1    : std_logic := '0';  -- 1-cycle delayed falling edge for sampling
-    signal dclk_active_d1  : std_logic := '0';  -- For detecting falling edge of dclk_active
+    -- Internal output registers
+    signal dclk_int : std_logic := '0';
+    signal odr_int  : std_logic := '0';
 
 begin
 
-    -- Registered outputs to avoid glitches
-    dclk_out <= dclk_out_r;
+    -- Output assignments
+    dclk_out <= dclk_int;
     odr_out  <= odr_int;
 
     ---------------------------------------------------------------------------
-    -- Clock divider: generates clock enables for DCLK edges
+    -- Main state machine process
+    -- Follows ADI axi_ad4134_sif.v design pattern
     ---------------------------------------------------------------------------
-    clk_div_p : process(clk, rst_n)
+    fsm_p : process(clk, rst_n)
     begin
         if (rst_n = '0') then
-            slow_clk_counter <= 0;
-            dclk_int         <= '0';
-            dclk_rise_en     <= '0';
-            dclk_fall_en     <= '0';
-        elsif (rising_edge(clk)) then
-            dclk_rise_en <= '0';
-            dclk_fall_en <= '0';
-
-            if (slow_clk_counter < SLOW_CLK_MAX) then
-                slow_clk_counter <= slow_clk_counter + 1;
-            else
-                slow_clk_counter <= 0;
-                dclk_int <= not dclk_int;
-
-                if (dclk_int = '0') then
-                    dclk_rise_en <= '1';
-                else
-                    dclk_fall_en <= '1';
-                end if;
-            end if;
-        end if;
-    end process;
-
-    ---------------------------------------------------------------------------
-    -- ODR and DCLK output control
-    ---------------------------------------------------------------------------
-    odr_p : process(clk, rst_n)
-    begin
-        if (rst_n = '0') then
-            odr_tracker <= 0;
+            state       <= STATE_IDLE;
+            dclk_int    <= '0';
             odr_int     <= '0';
-            dclk_active <= '0';
-            dclk_gate   <= '0';
-            dclk_out_r  <= '0';
+            data_rdy    <= '0';
+            clk_counter <= 0;
+            bit_counter <= DATA_WIDTH;
+            odr_counter <= 0;
+            shift_reg0  <= (others => '0');
+            shift_reg1  <= (others => '0');
+            shift_reg2  <= (others => '0');
+            shift_reg3  <= (others => '0');
+            data_out0   <= (others => '0');
+            data_out1   <= (others => '0');
+            data_out2   <= (others => '0');
+            data_out3   <= (others => '0');
+
         elsif (rising_edge(clk)) then
-            -- Gating logic: ensures complete DCLK pulses
-            -- Start gating only when dclk_int is low (about to start fresh cycle)
-            -- Stop gating only when dclk_int is low (completed current cycle)
-            if (dclk_active = '1' and dclk_gate = '0' and dclk_int = '0') then
-                dclk_gate <= '1';  -- Start on low phase
-            elsif (dclk_active = '0' and dclk_gate = '1' and dclk_int = '0') then
-                dclk_gate <= '0';  -- Stop on low phase
-            end if;
-
-            -- Register DCLK output using clean gating
-            if (dclk_gate = '1') then
-                dclk_out_r <= dclk_int;
-            else
-                dclk_out_r <= '0';
-            end if;
-
-            if (dclk_rise_en = '1') then
-                case odr_tracker is
-                    when 0 to ODR_HIGH_TIME - 1 =>
-                        odr_int     <= '1';
-                        dclk_active <= '0';
-
-                    -- Note: dclk_active must be set 1 cycle EARLY because:
-                    --   - Case evaluates odr_tracker at cycle N
-                    --   - dclk_active is assigned, takes effect at cycle N+1
-                    --   - First dclk_fall_d1 occurs at cycle N+3 (1.5 DCLK periods after rise)
-                    --   - At cycle N+3, we check dclk_active which was set at N
-                    -- So set dclk_active=1 when odr_tracker = ODR_WAIT_FIRST-1 (one cycle early)
-                    when ODR_HIGH_TIME to ODR_HIGH_TIME + ODR_WAIT_FIRST - 2 =>
-                        odr_int     <= '0';
-                        dclk_active <= '0';
-
-                    when ODR_HIGH_TIME + ODR_WAIT_FIRST - 1 to ODR_HIGH_TIME + ODR_WAIT_FIRST + ODR_LOW_TIME - 1 =>
-                        odr_int     <= '0';
-                        dclk_active <= '1';
-
-                    when ODR_HIGH_TIME + ODR_WAIT_FIRST + ODR_LOW_TIME to ODR_TOTAL_CLKS - 1 =>
-                        odr_int     <= '0';
-                        dclk_active <= '0';
-
-                    when others =>
-                        odr_int     <= '0';
-                        dclk_active <= '0';
-                end case;
-
-                if (odr_tracker < ODR_TOTAL_CLKS - 1) then
-                    odr_tracker <= odr_tracker + 1;
-                else
-                    odr_tracker <= 0;
-                end if;
-            end if;
-        end if;
-    end process;
-
-    ---------------------------------------------------------------------------
-    -- Delay process for sampling timing margin
-    -- AD4134 slave mode timing:
-    --   t6 = 8.2 ns max (DCLK rise to data valid)
-    --   t5 = 0 ns (data invalid at next DCLK rise)
-    -- At 80 MHz with SLOW_CLK_MAX=1:
-    --   DCLK period = 50 ns (20 MHz), high time = 25 ns
-    --   DCLK rises at T=0, dclk_active set on this edge
-    --   Data valid at T=8.2 ns
-    --   DCLK falls at T=25 ns, dclk_fall_en fires
-    --   Sample at T=37.5 ns (dclk_fall_d1), dclk_active still =1
-    --   Margin before next DCLK rise = 50 - 37.5 = 12.5 ns
-    ---------------------------------------------------------------------------
-    delay_p : process(clk, rst_n)
-    begin
-        if (rst_n = '0') then
-            dclk_fall_d1   <= '0';
-            dclk_active_d1 <= '0';
-        elsif (rising_edge(clk)) then
-            dclk_fall_d1   <= dclk_fall_en;
-            dclk_active_d1 <= dclk_active;  -- For edge detection
-        end if;
-    end process;
-
-    ---------------------------------------------------------------------------
-    -- Data read process
-    -- Samples 1 clock cycle after DCLK falling edge
-    -- Uses dclk_active directly (not dclk_gate) to avoid alignment issues
-    -- At 80 MHz with SLOW_CLK_MAX=1: sample at T=37.5 ns, 12.5 ns before next rise
-    ---------------------------------------------------------------------------
-    read_p : process(clk, rst_n)
-    begin
-        if (rst_n = '0') then
-            bit_count     <= DATA_WIDTH;
-            shift_reg0    <= (others => '0');
-            shift_reg1    <= (others => '0');
-            shift_reg2    <= (others => '0');
-            shift_reg3    <= (others => '0');
-            data_out0     <= (others => '0');
-            data_out1     <= (others => '0');
-            data_out2     <= (others => '0');
-            data_out3     <= (others => '0');
-            data_rdy      <= '0';
-            data_rdy_flag <= '0';
-        elsif (rising_edge(clk)) then
+            -- Default: clear single-cycle pulses
             data_rdy <= '0';
 
-            -- Sample on falling edge when dclk_active is high
-            -- dclk_active is set on dclk_rise_en, so it's stable by dclk_fall_d1
-            if (dclk_fall_d1 = '1' and dclk_active = '1' and bit_count > 0) then
-                -- Sample data_in directly (no intermediate register)
-                shift_reg0(bit_count - 1) <= data_in0;
-                shift_reg1(bit_count - 1) <= data_in1;
-                shift_reg2(bit_count - 1) <= data_in2;
-                shift_reg3(bit_count - 1) <= data_in3;
-                bit_count <= bit_count - 1;
-            end if;
+            case state is
+                ---------------------------------------------------------------
+                -- STATE_IDLE: Wait between ODR cycles
+                ---------------------------------------------------------------
+                when STATE_IDLE =>
+                    dclk_int <= '0';
+                    odr_int  <= '0';
 
-            -- Transfer data on dclk_active falling edge (end of data phase)
-            if (dclk_active_d1 = '1' and dclk_active = '0') then
-                if (bit_count = 0) then
-                    data_out0     <= shift_reg0;
-                    data_out1     <= shift_reg1;
-                    data_out2     <= shift_reg2;
-                    data_out3     <= shift_reg3;
-                    data_rdy_flag <= '1';
-                end if;
-                bit_count <= DATA_WIDTH;  -- Reset for next ODR cycle
-            end if;
+                    if (odr_counter < ODR_IDLE_CLKS) then
+                        odr_counter <= odr_counter + 1;
+                    else
+                        -- Start new ODR cycle
+                        odr_counter <= 0;
+                        state <= STATE_ODR;
+                    end if;
 
-            -- Generate data_rdy pulse one cycle after transfer
-            if (data_rdy_flag = '1') then
-                data_rdy      <= '1';
-                data_rdy_flag <= '0';
-            end if;
+                ---------------------------------------------------------------
+                -- STATE_ODR: Generate ODR pulse, then start DCLK
+                ---------------------------------------------------------------
+                when STATE_ODR =>
+                    dclk_int <= '0';
+                    odr_int  <= '1';  -- ODR high
+
+                    if (odr_counter < ODR_PULSE_CLKS - 1) then
+                        odr_counter <= odr_counter + 1;
+                    else
+                        -- End ODR pulse, start data phase
+                        odr_counter <= 0;
+                        odr_int     <= '0';
+                        bit_counter <= DATA_WIDTH;
+                        clk_counter <= CLK_DIV;
+                        -- Clear shift registers
+                        shift_reg0 <= (others => '0');
+                        shift_reg1 <= (others => '0');
+                        shift_reg2 <= (others => '0');
+                        shift_reg3 <= (others => '0');
+                        state <= STATE_LOW;
+                    end if;
+
+                ---------------------------------------------------------------
+                -- STATE_LOW: DCLK low phase
+                -- Wait for clock divider, then transition to HIGH
+                ---------------------------------------------------------------
+                when STATE_LOW =>
+                    dclk_int <= '0';
+                    odr_int  <= '0';
+
+                    if (clk_counter = 0) then
+                        -- Add 1 extra cycle for setup time in HIGH phase
+                        -- This ensures data is valid before sampling
+                        -- (AD4134 t6 = 8.2ns, 1 cycle at 80MHz = 12.5ns)
+                        clk_counter <= CLK_DIV + 1;
+                        state <= STATE_HIGH;
+                    else
+                        clk_counter <= clk_counter - 1;
+                    end if;
+
+                ---------------------------------------------------------------
+                -- STATE_HIGH: DCLK high phase
+                -- Sample data at end of HIGH phase (like ADI design)
+                -- Timing at 80 MHz with CLK_DIV=1:
+                --   T=0:    DCLK rises (dclk_int becomes '1')
+                --   T=8.2:  Data valid (AD4134 t6 spec)
+                --   T=12.5: First clock edge after DCLK rise
+                --   T=25.0: Sample data (clk_counter=0), margin=25-8.2=16.8ns
+                --   T=37.5: DCLK falls (transition to STATE_LOW)
+                ---------------------------------------------------------------
+                when STATE_HIGH =>
+                    dclk_int <= '1';
+                    odr_int  <= '0';
+
+                    if (clk_counter = 0) then
+                        clk_counter <= CLK_DIV;
+
+                        -- Sample data at end of DCLK high phase (ADI approach)
+                        -- Shift in MSB first
+                        shift_reg0 <= shift_reg0(DATA_WIDTH - 2 downto 0) & data_in0;
+                        shift_reg1 <= shift_reg1(DATA_WIDTH - 2 downto 0) & data_in1;
+                        shift_reg2 <= shift_reg2(DATA_WIDTH - 2 downto 0) & data_in2;
+                        shift_reg3 <= shift_reg3(DATA_WIDTH - 2 downto 0) & data_in3;
+
+                        if (bit_counter <= 1) then
+                            -- All bits captured
+                            state <= STATE_DONE;
+                        else
+                            bit_counter <= bit_counter - 1;
+                            state <= STATE_LOW;
+                        end if;
+                    else
+                        clk_counter <= clk_counter - 1;
+                    end if;
+
+                ---------------------------------------------------------------
+                -- STATE_DONE: Transfer data to outputs
+                ---------------------------------------------------------------
+                when STATE_DONE =>
+                    dclk_int <= '0';
+                    odr_int  <= '0';
+
+                    -- Transfer shift registers to output
+                    data_out0 <= shift_reg0;
+                    data_out1 <= shift_reg1;
+                    data_out2 <= shift_reg2;
+                    data_out3 <= shift_reg3;
+                    data_rdy  <= '1';
+
+                    -- Reset for next cycle
+                    odr_counter <= 0;
+                    state <= STATE_IDLE;
+
+                ---------------------------------------------------------------
+                -- Default
+                ---------------------------------------------------------------
+                when others =>
+                    state <= STATE_IDLE;
+
+            end case;
         end if;
     end process;
 
