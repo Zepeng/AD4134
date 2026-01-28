@@ -469,7 +469,10 @@ begin
                     read_i       <= '0';
 
                     spiaddr_i <= '0' & CHAN_DIG_FILTER_SEL(6 downto 0); --Write bit msb
-                    datain_i  <= "00000000"; --Device is configured in high performance mode if LSB then low power mode
+                    -- Filter selection: 00=FIR (max 365kSPS), 01=Sinc6 (max 1460kSPS), 10=Sinc3, 11=Sinc3_50_60
+                    -- For 500+ kHz ODR, must use Sinc6 (01 for each channel)
+                    -- Format: CH3[7:6] | CH2[5:4] | CH1[3:2] | CH0[1:0]
+                    datain_i  <= "01010101"; -- 0x55 = Sinc6 for all channels (supports up to 1460 kSPS)
 
                     if spidone_post = '1' and spidone_pre = '0' then
                         write_i      <= '0';
