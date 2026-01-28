@@ -29,10 +29,13 @@ end ad4134_data;
 architecture rtl of ad4134_data is
 
     -- Constants:
-    constant ODR_HIGH_TIME  : integer := 3;
-    constant ODR_LOW_TIME   : integer := 24;
-    constant ODR_WAIT_FIRST : integer := 2;
-    constant ODR_WAIT_LAST  : integer := 10;
+    -- Timing constants based on ADI reference design analysis:
+    -- ADI uses ODR high ~130 ns, DCLK starts 30 ns after ODR starts
+    -- Increased margins for reliable high-speed operation
+    constant ODR_HIGH_TIME  : integer := 6;   -- Longer ODR pulse (~300 ns)
+    constant ODR_LOW_TIME   : integer := 24;  -- 24 bits of data
+    constant ODR_WAIT_FIRST : integer := 4;   -- More setup time before DCLK
+    constant ODR_WAIT_LAST  : integer := 6;   -- Reduced to maintain ODR rate
 
     -- ODR Tracker signals:
     constant ODR_TOTAL_CLKS : integer := ODR_HIGH_TIME + ODR_WAIT_FIRST + ODR_LOW_TIME + ODR_WAIT_LAST;
@@ -65,11 +68,11 @@ architecture rtl of ad4134_data is
     signal data_rdy_flag : std_logic;
 
     -- Delayed sampling signals for timing margin
+    -- ADI reference design approach: sample on falling edge for better margin
     -- AD4134 slave mode: t6 = 8.2 ns max (DCLK rise to data valid)
-    -- Plus PCB round-trip delay (~6 ns), need ~15 ns minimum delay
-    -- Use 2-cycle delay to ensure adequate timing margin at 80 MHz
-    signal dclk_rise_d1   : std_logic := '0';
-    signal dclk_rise_d2   : std_logic := '0';  -- 2-cycle delay for sampling
+    -- Falling edge gives ~(DCLK_high - t6) margin before next edge
+    signal dclk_fall_d1   : std_logic := '0';
+    signal dclk_fall_d2   : std_logic := '0';  -- Delayed falling edge for sampling
     signal dclk_gate_d1   : std_logic := '0';
     signal dclk_gate_d2   : std_logic := '0';  -- Aligned with sampling
 
@@ -170,20 +173,24 @@ begin
 
     ---------------------------------------------------------------------------
     -- Delay process for sampling timing margin
-    -- AD4134 slave mode timing: t6 = 8.2 ns max (DCLK rise to data valid)
-    -- With PCB round-trip delay (~6 ns), need ~15 ns total delay
-    -- 2-cycle delay provides: 25 ns @ 80 MHz, 40 ns @ 50 MHz
+    -- ADI reference design insight: Sample on DCLK falling edge for better margin
+    -- AD4134 slave mode timing:
+    --   t6 = 8.2 ns max (DCLK rise to data valid)
+    --   t5 = 0 ns (data invalid at next DCLK rise)
+    -- Falling edge sampling: Data valid for (DCLK_high_time - t6) before sample
+    -- At 80 MHz with SLOW_CLK_MAX=1: DCLK high = 25 ns, margin = 25 - 8.2 = 16.8 ns
     ---------------------------------------------------------------------------
     delay_p : process(clk, rst_n)
     begin
         if (rst_n = '0') then
-            dclk_rise_d1 <= '0';
-            dclk_rise_d2 <= '0';
+            dclk_fall_d1 <= '0';
+            dclk_fall_d2 <= '0';
             dclk_gate_d1 <= '0';
             dclk_gate_d2 <= '0';
         elsif (rising_edge(clk)) then
-            dclk_rise_d1 <= dclk_rise_en;
-            dclk_rise_d2 <= dclk_rise_d1;  -- 2-cycle delay for sampling
+            -- Use falling edge for sampling (more margin than rising edge delay)
+            dclk_fall_d1 <= dclk_fall_en;
+            dclk_fall_d2 <= dclk_fall_d1;  -- 1-cycle delay for IOB timing
             dclk_gate_d1 <= dclk_gate;
             dclk_gate_d2 <= dclk_gate_d1;  -- Aligned with sampling
         end if;
@@ -191,9 +198,13 @@ begin
 
     ---------------------------------------------------------------------------
     -- Data read process
-    -- Uses 2-cycle delay (dclk_rise_d2) to ensure data is valid after t6
-    -- Timing: DCLK rises -> 8.2ns (t6) -> data valid -> sample after 2 clocks
-    -- At 80 MHz: 2 clocks = 25 ns > 8.2 ns + ~6 ns PCB delay = 14.2 ns
+    -- Samples on DCLK falling edge (inspired by ADI reference design)
+    -- Timing advantage:
+    --   - DCLK rises at T=0
+    --   - Data valid at T=8.2 ns (t6)
+    --   - DCLK falls at T=12.5 ns (SLOW_CLK_MAX=1) or T=25 ns (SLOW_CLK_MAX=2)
+    --   - Sample 1 cycle after fall = plenty of margin
+    -- This is safer than sampling near the next rising edge
     ---------------------------------------------------------------------------
     read_p : process(clk, rst_n)
     begin
@@ -212,7 +223,8 @@ begin
         elsif (rising_edge(clk)) then
             data_rdy <= '0';
 
-            if (dclk_rise_d2 = '1') then
+            -- Sample on delayed falling edge for maximum timing margin
+            if (dclk_fall_d2 = '1') then
                 if (dclk_gate_d2 = '1') then
                     if (bit_count > 0) then
                         -- Sample data_in directly (no intermediate register)
