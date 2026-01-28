@@ -149,11 +149,17 @@ begin
                         odr_int     <= '1';
                         dclk_active <= '0';
 
-                    when ODR_HIGH_TIME to ODR_HIGH_TIME + ODR_WAIT_FIRST - 1 =>
+                    -- Note: dclk_active must be set 1 cycle EARLY because:
+                    --   - Case evaluates odr_tracker at cycle N
+                    --   - dclk_active is assigned, takes effect at cycle N+1
+                    --   - First dclk_fall_d1 occurs at cycle N+3 (1.5 DCLK periods after rise)
+                    --   - At cycle N+3, we check dclk_active which was set at N
+                    -- So set dclk_active=1 when odr_tracker = ODR_WAIT_FIRST-1 (one cycle early)
+                    when ODR_HIGH_TIME to ODR_HIGH_TIME + ODR_WAIT_FIRST - 2 =>
                         odr_int     <= '0';
                         dclk_active <= '0';
 
-                    when ODR_HIGH_TIME + ODR_WAIT_FIRST to ODR_HIGH_TIME + ODR_WAIT_FIRST + ODR_LOW_TIME - 1 =>
+                    when ODR_HIGH_TIME + ODR_WAIT_FIRST - 1 to ODR_HIGH_TIME + ODR_WAIT_FIRST + ODR_LOW_TIME - 1 =>
                         odr_int     <= '0';
                         dclk_active <= '1';
 
