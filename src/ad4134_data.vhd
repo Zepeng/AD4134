@@ -48,8 +48,19 @@ architecture rtl of ad4134_data is
     signal state : state_t := STATE_IDLE;
 
     -- Timing constants
-    -- ODR idle period between captures (adjustable for desired sample rate)
-    constant ODR_IDLE_CLKS : integer := 12;  -- Idle time between captures
+    -- Target ODR rate calculation (must match ODR_VAL_INT in ad4134_control.vhd!)
+    -- ODR_VAL_INT = 38 → Internal ODR = 19.2 MHz / 38 = 505 kHz → period = 1980 ns
+    -- At 80 MHz (12.5 ns/cycle), target total cycles = 1980 / 12.5 = 158 cycles
+    --
+    -- Fixed overhead (CLK_DIV=1):
+    --   STATE_ODR:  8 cycles
+    --   DATA phase: 24 bits × 5 cycles/bit = 120 cycles
+    --   STATE_DONE: 1 cycle
+    --   Total fixed: 129 cycles
+    --
+    -- Configurable: ODR_IDLE_CLKS = 158 - 129 = 29 cycles
+    --
+    constant ODR_IDLE_CLKS : integer := 29;  -- Idle time (tuned for ~505 kHz ODR)
     constant ODR_PULSE_CLKS : integer := 8;  -- ODR high pulse width
 
     -- Clock divider counter (needs +1 for setup time in HIGH phase)
@@ -58,8 +69,8 @@ architecture rtl of ad4134_data is
     -- Bit counter (counts down from DATA_WIDTH)
     signal bit_counter : integer range 0 to DATA_WIDTH := DATA_WIDTH;
 
-    -- ODR interval counter
-    signal odr_counter : integer range 0 to ODR_IDLE_CLKS + ODR_PULSE_CLKS := 0;
+    -- ODR interval counter (range covers max of IDLE or PULSE counts)
+    signal odr_counter : integer range 0 to ODR_IDLE_CLKS := 0;
 
     -- Shift registers for incoming data
     signal shift_reg0 : std_logic_vector(DATA_WIDTH - 1 downto 0) := (others => '0');

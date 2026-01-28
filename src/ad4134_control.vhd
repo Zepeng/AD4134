@@ -247,12 +247,15 @@ begin
             SPI_Error                <= X"47";
             AIN_OR_ERROR             <= X"48";
 
-            --ODR Initial Values 
+            --ODR Initial Values
 
             ODR_COUNT   <= 0;
-            --ODR_VAL_INT <= (others => '0');
-            --ODR_VAL_INT <= x"00000F";
-            ODR_VAL_INT <= x"023C34";
+            -- ODR_VAL_INT must match the desired external ODR rate!
+            -- Formula: ODR_VAL_INT = MCLK / target_ODR (MCLK ≈ 19.2 MHz)
+            -- OLD: x"023C34" = 146,484 → ~131 Hz (WAY too slow for 500+ kHz external ODR)
+            -- For 500 kHz: 19.2M / 500k = 38 = 0x000026
+            -- For 1 MHz:   19.2M / 1M   = 19 = 0x000013
+            ODR_VAL_INT <= x"000026";  -- 38 decimal → ~505 kHz internal ODR
             ODR_VAL_FLT <= (others => '0');
 
             --End of addresses
