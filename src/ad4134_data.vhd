@@ -68,13 +68,17 @@ architecture rtl of ad4134_data is
     signal data_rdy_flag : std_logic;
 
     -- Delayed sampling signals for timing margin
-    -- ADI reference design approach: sample on falling edge for better margin
     -- AD4134 slave mode: t6 = 8.2 ns max (DCLK rise to data valid)
-    -- Falling edge gives ~(DCLK_high - t6) margin before next edge
-    signal dclk_fall_d1   : std_logic := '0';
-    signal dclk_fall_d2   : std_logic := '0';  -- Delayed falling edge for sampling
-    signal dclk_gate_d1   : std_logic := '0';
-    signal dclk_gate_d2   : std_logic := '0';  -- Aligned with sampling
+    -- At 80 MHz, SLOW_CLK_MAX=1: DCLK period = 50 ns, high time = 25 ns
+    -- Sample 1 cycle after falling edge (T=37.5ns) gives 12.5 ns margin before next rise
+    --
+    -- IMPORTANT: Use dclk_active directly (not dclk_gate) because:
+    --   - dclk_active goes HIGH on dclk_rise_en (at DCLK rising edge)
+    --   - dclk_fall_en fires on DCLK falling edge (half period later)
+    --   - So dclk_active is already stable when we check dclk_fall_d1
+    --   - dclk_gate has 1-cycle alignment issue (set after dclk_int goes low)
+    signal dclk_fall_d1    : std_logic := '0';  -- 1-cycle delayed falling edge for sampling
+    signal dclk_active_d1  : std_logic := '0';  -- For detecting falling edge of dclk_active
 
 begin
 
@@ -173,38 +177,33 @@ begin
 
     ---------------------------------------------------------------------------
     -- Delay process for sampling timing margin
-    -- ADI reference design insight: Sample on DCLK falling edge for better margin
     -- AD4134 slave mode timing:
     --   t6 = 8.2 ns max (DCLK rise to data valid)
     --   t5 = 0 ns (data invalid at next DCLK rise)
-    -- Falling edge sampling: Data valid for (DCLK_high_time - t6) before sample
-    -- At 80 MHz with SLOW_CLK_MAX=1: DCLK high = 25 ns, margin = 25 - 8.2 = 16.8 ns
+    -- At 80 MHz with SLOW_CLK_MAX=1:
+    --   DCLK period = 50 ns (20 MHz), high time = 25 ns
+    --   DCLK rises at T=0, dclk_active set on this edge
+    --   Data valid at T=8.2 ns
+    --   DCLK falls at T=25 ns, dclk_fall_en fires
+    --   Sample at T=37.5 ns (dclk_fall_d1), dclk_active still =1
+    --   Margin before next DCLK rise = 50 - 37.5 = 12.5 ns
     ---------------------------------------------------------------------------
     delay_p : process(clk, rst_n)
     begin
         if (rst_n = '0') then
-            dclk_fall_d1 <= '0';
-            dclk_fall_d2 <= '0';
-            dclk_gate_d1 <= '0';
-            dclk_gate_d2 <= '0';
+            dclk_fall_d1   <= '0';
+            dclk_active_d1 <= '0';
         elsif (rising_edge(clk)) then
-            -- Use falling edge for sampling (more margin than rising edge delay)
-            dclk_fall_d1 <= dclk_fall_en;
-            dclk_fall_d2 <= dclk_fall_d1;  -- 1-cycle delay for IOB timing
-            dclk_gate_d1 <= dclk_gate;
-            dclk_gate_d2 <= dclk_gate_d1;  -- Aligned with sampling
+            dclk_fall_d1   <= dclk_fall_en;
+            dclk_active_d1 <= dclk_active;  -- For edge detection
         end if;
     end process;
 
     ---------------------------------------------------------------------------
     -- Data read process
-    -- Samples on DCLK falling edge (inspired by ADI reference design)
-    -- Timing advantage:
-    --   - DCLK rises at T=0
-    --   - Data valid at T=8.2 ns (t6)
-    --   - DCLK falls at T=12.5 ns (SLOW_CLK_MAX=1) or T=25 ns (SLOW_CLK_MAX=2)
-    --   - Sample 1 cycle after fall = plenty of margin
-    -- This is safer than sampling near the next rising edge
+    -- Samples 1 clock cycle after DCLK falling edge
+    -- Uses dclk_active directly (not dclk_gate) to avoid alignment issues
+    -- At 80 MHz with SLOW_CLK_MAX=1: sample at T=37.5 ns, 12.5 ns before next rise
     ---------------------------------------------------------------------------
     read_p : process(clk, rst_n)
     begin
@@ -223,31 +222,33 @@ begin
         elsif (rising_edge(clk)) then
             data_rdy <= '0';
 
-            -- Sample on delayed falling edge for maximum timing margin
-            if (dclk_fall_d2 = '1') then
-                if (dclk_gate_d2 = '1') then
-                    if (bit_count > 0) then
-                        -- Sample data_in directly (no intermediate register)
-                        shift_reg0(bit_count - 1) <= data_in0;
-                        shift_reg1(bit_count - 1) <= data_in1;
-                        shift_reg2(bit_count - 1) <= data_in2;
-                        shift_reg3(bit_count - 1) <= data_in3;
-                        bit_count <= bit_count - 1;
-                    end if;
-                    data_rdy_flag <= '0';
-                else
-                    if (bit_count = 0 and data_rdy_flag = '0') then
-                        data_out0     <= shift_reg0;
-                        data_out1     <= shift_reg1;
-                        data_out2     <= shift_reg2;
-                        data_out3     <= shift_reg3;
-                        data_rdy_flag <= '1';
-                        bit_count     <= DATA_WIDTH;
-                    elsif (data_rdy_flag = '1') then
-                        data_rdy      <= '1';
-                        data_rdy_flag <= '0';
-                    end if;
+            -- Sample on falling edge when dclk_active is high
+            -- dclk_active is set on dclk_rise_en, so it's stable by dclk_fall_d1
+            if (dclk_fall_d1 = '1' and dclk_active = '1' and bit_count > 0) then
+                -- Sample data_in directly (no intermediate register)
+                shift_reg0(bit_count - 1) <= data_in0;
+                shift_reg1(bit_count - 1) <= data_in1;
+                shift_reg2(bit_count - 1) <= data_in2;
+                shift_reg3(bit_count - 1) <= data_in3;
+                bit_count <= bit_count - 1;
+            end if;
+
+            -- Transfer data on dclk_active falling edge (end of data phase)
+            if (dclk_active_d1 = '1' and dclk_active = '0') then
+                if (bit_count = 0) then
+                    data_out0     <= shift_reg0;
+                    data_out1     <= shift_reg1;
+                    data_out2     <= shift_reg2;
+                    data_out3     <= shift_reg3;
+                    data_rdy_flag <= '1';
                 end if;
+                bit_count <= DATA_WIDTH;  -- Reset for next ODR cycle
+            end if;
+
+            -- Generate data_rdy pulse one cycle after transfer
+            if (data_rdy_flag = '1') then
+                data_rdy      <= '1';
+                data_rdy_flag <= '0';
             end if;
         end if;
     end process;
