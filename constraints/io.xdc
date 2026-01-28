@@ -72,3 +72,10 @@ set_property PACKAGE_PIN R2 [get_ports mosi]
 set_property PACKAGE_PIN M3 [get_ports odr_out]
 set_property IOSTANDARD LVCMOS18 [get_ports odr_out]
 set_property PACKAGE_PIN N5 [get_ports spi_cs_n]
+
+# AD4134 GPIO control pins (UltraZed-EG FMC pinout from ADI reference)
+set_property -dict {PACKAGE_PIN R7  IOSTANDARD LVCMOS18} [get_ports ad4134_resetn]
+set_property -dict {PACKAGE_PIN U1  IOSTANDARD LVCMOS18} [get_ports ad4134_pdn]
+set_property -dict {PACKAGE_PIN K6  IOSTANDARD LVCMOS18} [get_ports ad4134_mode]
+set_property -dict {PACKAGE_PIN P3  IOSTANDARD LVCMOS18} [get_ports ad4134_dclkio]
+set_property -dict {PACKAGE_PIN M6  IOSTANDARD LVCMOS18} [get_ports ad4134_pinbspi]

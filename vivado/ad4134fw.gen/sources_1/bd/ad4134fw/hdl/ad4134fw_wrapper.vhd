@@ -21,14 +21,20 @@ entity ad4134fw_wrapper is
     data_in2 : in STD_LOGIC;
     data_in3 : in STD_LOGIC;
     dclk_out : out STD_LOGIC;
-    ad4134_dclk_mode : out STD_LOGIC;
     debug : out STD_LOGIC_VECTOR ( 3 downto 0 );
     hb_led : out STD_LOGIC_VECTOR ( 0 to 0 );
     miso : in STD_LOGIC;
     mosi : out STD_LOGIC;
     odr_out : out STD_LOGIC;
     spi_clk : out STD_LOGIC;
-    spi_cs_n : out STD_LOGIC
+    spi_cs_n : out STD_LOGIC;
+    -- AD4134 GPIO control pins (directly driven for slave mode operation)
+    ad4134_resetn    : out STD_LOGIC;  -- Hardware reset (active low)
+    ad4134_pdn       : out STD_LOGIC;  -- Power down control (low = power down)
+    ad4134_mode      : out STD_LOGIC;  -- Master/Slave mode (0 = slave)
+    ad4134_dclk_mode : out STD_LOGIC;  -- DCLK mode (0 = gated)
+    ad4134_dclkio    : out STD_LOGIC;  -- DCLK I/O direction (0 = input)
+    ad4134_pinbspi   : out STD_LOGIC   -- Pin/SPI control (1 = SPI control)
   );
 end ad4134fw_wrapper;
 
@@ -43,7 +49,6 @@ architecture STRUCTURE of ad4134fw_wrapper is
     LEDS : out STD_LOGIC_VECTOR ( 6 downto 0 );
     hb_led : out STD_LOGIC_VECTOR ( 0 to 0 );
     dclk_out : out STD_LOGIC;
-    ad4134_dclk_mode : out STD_LOGIC;
     odr_out : out STD_LOGIC;
     data_in0 : in STD_LOGIC;
     data_in1 : in STD_LOGIC;
@@ -70,6 +75,15 @@ ad4134fw_i: component ad4134fw
       spi_clk => spi_clk,
       spi_cs_n => spi_cs_n
     );
-  -- Force gated DCLK mode (DEC1/DCLKMODE = 0).
-  ad4134_dclk_mode <= '0';
+  -- AD4134 GPIO control for slave mode operation (matches ADI reference design)
+  -- These static assignments configure the ADC for:
+  --   - Slave mode (FPGA provides DCLK)
+  --   - Gated DCLK mode
+  --   - SPI register control (not pin control)
+  ad4134_resetn    <= '1';  -- Not in reset (active low)
+  ad4134_pdn       <= '1';  -- Powered up (low = power down)
+  ad4134_mode      <= '0';  -- Slave mode (0 = slave, DCLK is input to ADC)
+  ad4134_dclk_mode <= '0';  -- Gated DCLK mode (0 = gated)
+  ad4134_dclkio    <= '0';  -- DCLK as input to ADC (0 = input)
+  ad4134_pinbspi   <= '1';  -- SPI control mode (1 = SPI register control)
 end STRUCTURE;

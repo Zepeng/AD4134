@@ -376,15 +376,16 @@ begin
                         null;
                     end if;
                 when DEVICECONFIG_1 =>
-                    
+
                     debug <= b"0101";
-                        
+
                     spi_clk_en_i <= '1';
                     write_i      <= '1';
                     read_i       <= '0';
 
                     spiaddr_i <= '0' & DEVICE_CONFIG_1(6 downto 0); --Write bit msb
-                    datain_i  <= "00000000";
+                    -- Bit 0: CLKOUT_EN, Bit 1: REF_GAIN_CORR_EN (matches ADI reference)
+                    datain_i  <= "00000011";
 
                     if spidone_post = '1' and spidone_pre = '0'  then
                         write_i      <= '0';
@@ -437,14 +438,14 @@ begin
                     end if;
 
                 when POWERCONTROL =>
-                
+
                     debug <= b"1000";
-                
+
                     spi_clk_en_i <= '1';
                     write_i      <= '1';
                     read_i       <= '0';
 
-                    spiaddr_i <= '0' & DIGITAL_INTERFACE_CONFIG(6 downto 0); --Write bit msb
+                    spiaddr_i <= '0' & POWER_DOWN_CONTROL(6 downto 0); --Write bit msb
                     datain_i  <= "00000000"; --All channels enabled, LDO powered, Sleep mode disabled
 
                     if spidone_post = '1' and spidone_pre = '0' then
