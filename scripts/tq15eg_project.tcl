@@ -19,7 +19,7 @@ set repo_root [file normalize [file join $script_dir ..]]
 # ==============================================================================
 # Project Configuration - MODIFY THESE AS NEEDED
 # ==============================================================================
-set proj_name "ad4134fw"
+set proj_name "ad4134fw_tq15eg"
 set proj_dir [file join $repo_root "vivado_2023_1"]
 
 # Target: UltraZed-3EG PCIECC
@@ -53,6 +53,15 @@ if {[file exists $proj_dir]} {
 }
 
 create_project $proj_name $proj_dir -part $part_name -force
+
+
+# Set IP cache directory outside of the root repo. Avoids synthesis of individual
+# IPs after running project creations
+#set ip_cache_dir [file join $repo_root "ip"]
+#file mkdir $ip_cache_dir
+#set_property ip_cache_permissions {read write} [current_project]
+#set_property ip_cache_dir $ip_cache_dir [current_project]
+
 
 # Set board part (may fail if board files not installed)
 if {[catch {set_property board_part $board_part [current_project]} err]} {

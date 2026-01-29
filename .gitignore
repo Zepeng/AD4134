@@ -1,4 +1,6 @@
 vivado_2023_1
 .Xil
-vivado.log
-vivado.jou
+*.log
+*.str
+*.jou
+
