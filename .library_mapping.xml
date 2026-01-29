@@ -7,4 +7,5 @@
   <Mappings Location="src/ad4134_data.vhd" Library="work"/>
   <Mappings Location="src/ad4134_data_tb.vhd" Library="work"/>
   <Mappings Location="src/ad4134_to_bram.vhd" Library="work"/>
+  <Mappings Location="src/spi_master.vhd" Library="work"/>
 </com.sigasi.hdt.shared.librarymapping.model:LibraryMappings>
