@@ -43,11 +43,12 @@ architecture rtl of ad4134_control is
         POWERCONTROL,
         FILTERCONFIG,
         GPIOCONFIG,
-        TRANSFERREGISTER
+        TRANSFERREGISTER,
         --GAINCONFIG_CH0,
         --GAINCONFIG_CH1,
         --GAINCONFIG_CH2,
-        --GAINCONFIG_CH3
+        --GAINCONFIG_CH3,
+        ADDITIONAL_CONFIG
     );
     signal setup_state : setup_states;
 
@@ -388,7 +389,7 @@ begin
 
                     spiaddr_i <= '0' & DEVICE_CONFIG_1(6 downto 0); --Write bit msb
                     -- Bit 0: CLKOUT_EN, Bit 1: REF_GAIN_CORR_EN (matches ADI reference)
-                    datain_i  <= "00000011";
+                    datain_i  <= "00000001";
 
                     if spidone_post = '1' and spidone_pre = '0'  then
                         write_i      <= '0';
@@ -410,7 +411,7 @@ begin
                     spiaddr_i <= '0' & DATA_PACKET_CONFIG(6 downto 0); --Write bit msb
                     -- fdclk = 375 kHz, register DCLK_FREQ_SEL[3:0] = 0b0111
                     -- for fdclk = 24 MHz, set DCLK_FREQ_SEL[3:0] = 0b0000, so datain_i <= "01000000"
-                    datain_i  <= "00101111"; 
+                    datain_i  <= "00100000"; 
 
                     if spidone_post = '1' and spidone_pre = '0' then
                         write_i      <= '0';
@@ -429,7 +430,7 @@ begin
                     read_i       <= '0';
 
                     spiaddr_i <= '0' & DIGITAL_INTERFACE_CONFIG(6 downto 0); --Write bit msb
-                    datain_i  <= "00110010"; --Quad channel output 
+                    datain_i  <= "00000010"; --Quad channel output 
 
                     if spidone_post = '1' and spidone_pre = '0' then
                         write_i      <= '0';
@@ -472,7 +473,7 @@ begin
                     -- Filter selection: 00=FIR (max 365kSPS), 01=Sinc6 (max 1460kSPS), 10=Sinc3, 11=Sinc3_50_60
                     -- For 500+ kHz ODR, must use Sinc6 (01 for each channel)
                     -- Format: CH3[7:6] | CH2[5:4] | CH1[3:2] | CH0[1:0]
-                    datain_i  <= "01010101"; -- 0x55 = Sinc6 for all channels (supports up to 1460 kSPS)
+                    datain_i  <= "10101010"; -- 0x55 = Sinc6 for all channels (supports up to 1460 kSPS)
 
                     if spidone_post = '1' and spidone_pre = '0' then
                         write_i      <= '0';

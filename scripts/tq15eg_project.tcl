@@ -47,21 +47,21 @@ puts "==========================================================================
 puts "\n>>> Step 1: Creating project..."
 
 # Remove existing project if present
-#if {[file exists $proj_dir]} {
-#    puts "WARNING: Removing existing project directory..."
-#    file delete -force $proj_dir
-#}
-
-#create_project $proj_name $proj_dir -part $part_name -force
-
-if {[file exists $xpr_path]} {
-    puts "Opening existing project: $xpr_path"
-    open_project $xpr_path
-} else {
-    puts "Creating new project in: $proj_dir"
-    file mkdir $proj_dir
-    create_project $proj_name $proj_dir -part $part_name
+if {[file exists $proj_dir]} {
+    puts "WARNING: Removing existing project directory..."
+    file delete -force $proj_dir
 }
+
+create_project $proj_name $proj_dir -part $part_name -force
+#set xpr_path [file join $proj_dir "${proj_name}.xpr"]
+#if {[file exists $xpr_path]} {
+#    puts "Opening existing project: $xpr_path"
+#    open_project $xpr_path
+#} else {
+#    puts "Creating new project in: $proj_dir"
+##    file mkdir $proj_dir
+#    create_project $proj_name $proj_dir -part $part_name
+#}
 
 # Creates IP cache directory to decrease the amount of time required for
 # synthesis
