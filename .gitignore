@@ -3,4 +3,7 @@ vivado_2023_1
 *.log
 *.str
 *.jou
+ip_cache
+tests
+*.zip
 

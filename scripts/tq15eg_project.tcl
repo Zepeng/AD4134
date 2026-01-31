@@ -47,13 +47,33 @@ puts "==========================================================================
 puts "\n>>> Step 1: Creating project..."
 
 # Remove existing project if present
-if {[file exists $proj_dir]} {
-    puts "WARNING: Removing existing project directory..."
-    file delete -force $proj_dir
+#if {[file exists $proj_dir]} {
+#    puts "WARNING: Removing existing project directory..."
+#    file delete -force $proj_dir
+#}
+
+#create_project $proj_name $proj_dir -part $part_name -force
+
+if {[file exists $xpr_path]} {
+    puts "Opening existing project: $xpr_path"
+    open_project $xpr_path
+} else {
+    puts "Creating new project in: $proj_dir"
+    file mkdir $proj_dir
+    create_project $proj_name $proj_dir -part $part_name
 }
 
-create_project $proj_name $proj_dir -part $part_name -force
+# Creates IP cache directory to decrease the amount of time required for
+# synthesis
+set ip_cache_dir [file join $repo_root "ip_cache"]
+file mkdir $ip_cache_dir
 
+config_ip_cache -use_cache_location $ip_cache_dir
+set_property IP_CACHE_PERMISSIONS {read write} [current_project]
+
+puts "Using IP cache at: $ip_cache_dir"
+puts "IP_OUTPUT_REPO is: [get_property IP_OUTPUT_REPO [current_project]]"
+puts "IP_CACHE_PERMISSIONS is: [get_property IP_CACHE_PERMISSIONS [current_project]]"
 
 # Set IP cache directory outside of the root repo. Avoids synthesis of individual
 # IPs after running project creations

@@ -2,18 +2,26 @@
 
 AD4134 Driver Development
 
+## Usage
+
+## Scripts
+
+### tq15eg_project.tcl:
+
+### tq15eg_preset.tcl
+
 ## Pins for Each ADC
 
 All pins beside CS can be shared for all ADCs.
 
-SPI Configuration
+**SPI Configuration**
 
-1. SPI_CLK x 1
-2. MISO/SDI x 1
-3. MOSI/SDO x 1
-4. CS x 1
+1. SPI_CLK/SCLK x 1
+2. MISO/SDO x 1
+3. MOSI/SDI x 1
+4. CS_N x 1
 
-Data
+**Data**
 
 1. DOUT x 4
 2. ODR x 1
@@ -31,9 +39,3 @@ DATA_PACKET_CONFIG[5:4] (Frame) = 24-bit + 6-bit CRC
 **Generics:**
 DATA_WIDTH:
 CLK_DIV: For effective DLCK and ODR
-
-## Scripts
-
-### tq15eg_project.tcl:
-
-### tq15eg_preset.tcl
